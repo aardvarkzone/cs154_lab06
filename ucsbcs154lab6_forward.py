@@ -233,7 +233,7 @@ with pyrtl.conditional_assignment:
         ForwardA |= 0b10
     
     # mem hazard
-    with ((reg_write_mw & ~(rd_mw == 0)) & ~(reg_write_xm & ~(rd_xm == 0)) & (rd_xm == rs_dx) & (rd_mw == rs_dx)):
+    with ((reg_write_mw & ~(rd_mw == 0)) & ~((reg_write_xm & ~(rd_xm == 0)) & (rd_xm == rs_dx)) & (rd_mw == rs_dx)):
         ForwardA |= 0b01
 
 with pyrtl.conditional_assignment:
@@ -242,7 +242,7 @@ with pyrtl.conditional_assignment:
         ForwardB |= 0b10
 
     # mem hazard
-    with ((reg_write_mw & ~(rd_mw == 0)) & ~(reg_write_xm & ~(rd_xm == 0)) & (rd_xm == rt_dx) & (rd_mw == rt_dx)):
+    with ((reg_write_mw & ~(rd_mw == 0)) & ~((reg_write_xm & ~(rd_xm == 0)) & (rd_xm == rt_dx)) & (rd_mw == rt_dx)):
         ForwardB |= 0b01
 
 
