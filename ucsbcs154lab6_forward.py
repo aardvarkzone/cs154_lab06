@@ -101,9 +101,9 @@ mem_write_dx = pyrtl.Register(bitwidth=1, name='mem_write_dx')
 mem_to_reg_dx = pyrtl.Register(bitwidth=1, name='mem_to_reg_dx')
 reg_write_dx = pyrtl.Register(bitwidth=1, name='reg_write_dx')
 reg_dest_dx = pyrtl.Register(bitwidth=1, name='reg_dest_dx')
+rs_dx = pyrtl.Register(bitwidth=32, name='rs_dx')
 rd_dx = pyrtl.Register(bitwidth=32, name='rd_dx')
 rt_dx = pyrtl.Register(bitwidth=32, name='rt_dx')
-rs_dx = pyrtl.Register(bitwidth=32, name='rs_dx')
 
 branch_pc_xm = pyrtl.Register(bitwidth=32, name='branch_pc_xm')
 to_branch_xm = pyrtl.Register(bitwidth=1, name='to_branch_xm')
@@ -196,6 +196,7 @@ with pyrtl.conditional_assignment:
         mem_to_reg_dx.next |= 0
         reg_write_dx.next |= 0
         reg_dest_dx.next |= 0
+        rs_dx.next |= 0
         rd_dx.next |= 0
         rt_dx.next |= 0
     with pyrtl.otherwise:
@@ -212,8 +213,10 @@ with pyrtl.conditional_assignment:
         mem_to_reg_dx.next |= mem_to_reg_d
         reg_write_dx.next |= reg_write_d
         reg_dest_dx.next |= reg_dest_d
+        rs_dx.next |= rs_d
         rd_dx.next |= rd_d
         rt_dx.next |= rt_d
+        
 
 
 # execute
@@ -221,48 +224,57 @@ with pyrtl.conditional_assignment:
 rd_x <<= pyrtl.select(reg_dest_dx, rd_dx, rt_dx)
 
 #forwarding unit 
-forwardA = pyrtl.WireVector(bitwidth=2, name='forwardA')
-forwardB = pyrtl.WireVector(bitwidth=2, name='forwardB')
+ForwardA = pyrtl.WireVector(bitwidth=2, name='ForwardA')
+ForwardB = pyrtl.WireVector(bitwidth=2, name='ForwardB')
 
 with pyrtl.conditional_assignment:
     # ex hazard
-    with reg_write_dx == 1 & ~(rd_dx == 0) & (rd_dx == rs_dx): #need to implement rs_dx
-        forwardA |= 0b10
-    
-    with reg_write_dx == 1 & ~(rd_dx == 0) & (rd_dx == rt_dx): 
-        forwardB |= 0b10
+    with ((reg_write_xm & ~(rd_xm == 0)) & (rd_xm == rs_dx)):
+        ForwardA |= 0b10
     
     # mem hazard
-    with reg_write_mw & ~(rd_mw == 0) & ~(reg_write_xm & ~(rd_xm == 0)) & rd_xm == rs_dx & rd_mw == rs_dx:
-        forwardA |= 0b01
+    with ((reg_write_mw & ~(rd_mw == 0)) & ~(reg_write_xm & ~(rd_xm == 0)) & (rd_xm == rs_dx) & (rd_mw == rs_dx)):
+        ForwardA |= 0b01
 
-    with reg_write_mw & ~(rd_mw == 0) & ~(reg_write_xm & ~(rd_xm == 0)) & rd_xm == rt_dx & rd_mw == rt_dx:
-        forwardB |= 0b01
-                    
-#mux1
-    with pyrtl.conditional_assignment:
-        with forwardA == 0b00:
-            pass
-        with forwardA == 0b10:
-            pass
-        with forwardA == 0b01:
-            pass
+with pyrtl.conditional_assignment:
+    # ex hazard
+    with ((reg_write_xm & ~(rd_xm == 0)) & (rd_xm == rt_dx)):
+        ForwardB |= 0b10
 
-#mux2
-    with pyrtl.conditional_assignment:
-        with forwardB == 0b00:
-            pass
-        with forwardB == 0b10:
-            pass
-        with forwardB == 0b01:
-            pass
+    # mem hazard
+    with ((reg_write_mw & ~(rd_mw == 0)) & ~(reg_write_xm & ~(rd_xm == 0)) & (rd_xm == rt_dx) & (rd_mw == rt_dx)):
+        ForwardB |= 0b01
 
+
+
+#wireA = pyrtl.WireVector(bitwidth=32, name='wireA')
+#wireB = pyrtl.WireVector(bitwidth=32, name='wireB')            
 
 rf_data_1_x = pyrtl.WireVector(bitwidth=32)
-rf_data_1_x <<= rf_data_1_dx
+# rf_data_1_x <<= rf_data_1_dx
 
 rf_data_2_x = pyrtl.WireVector(bitwidth=32)
-rf_data_2_x <<= rf_data_2_dx
+# rf_data_2_x <<= rf_data_2_dx
+
+
+
+#mux1
+with pyrtl.conditional_assignment:
+    with ForwardA == 0b01: #wb
+        rf_data_1_x |= rf_write_data_w
+    with ForwardA == 0b10: #mem
+        rf_data_1_x |= ALU_result_xm
+    with pyrtl.otherwise: 
+        rf_data_1_x |= rf_data_1_dx
+
+#mux2
+with pyrtl.conditional_assignment:
+    with ForwardB == 0b01: #wb
+        rf_data_2_x |= rf_write_data_w
+    with ForwardB == 0b10: #mem 
+        rf_data_2_x |= ALU_result_xm
+    with pyrtl.otherwise:
+        rf_data_2_x |= rf_data_2_dx
 
 ALU_first_x = rf_data_1_x
 ALU_first_x.name = 'ALU_first_x'
@@ -338,13 +350,104 @@ if __name__ == '__main__':
     })
 
     # Run for an arbitrarily large number of cycles.
-    for cycle in range(50):
+    for cycle in range(500):
         sim.step({})
 
     # Use render_trace() to debug if your code doesn't work.
-    # ucsbcs154lab6_sim_trace.render_trace(symbol_len=20)
-    # ucsbcs154lab6_sim_trace.print_vcd(open('dump.vcd', 'w'), include_clock=True)
+    ucsbcs154lab6_sim_trace.render_trace(symbol_len=20)
+    ucsbcs154lab6_sim_trace.print_vcd(open('dump.vcd', 'w'), include_clock=True)
+    
 
-    # You can also print out the register file or memory like so if you want to debug:
-    print('mem',sim.inspect_mem(d_mem))
-    print('rf',sim.inspect_mem(rf))
+    # assert(sim.inspect_mem(rf)[8] == 2674), "ADD instruction failed"
+    # assert(sim.inspect_mem(rf)[9] == 489), "ADDI instruction failed"
+    # assert(sim.inspect_mem(rf)[10] == 0), "AND instruction failed"
+    # assert(sim.inspect_mem(rf)[11] == 328012685), "LUI instruction failed"
+    # assert(sim.inspect_mem(rf)[12] == 895), "ORI instruction failed"
+    # assert(sim.inspect_mem(rf)[13] == 0), "SLT instruction failed"
+    # assert(sim.inspect_mem(rf)[14] == 1337), "SW instruction failed"
+    # assert(sim.inspect_mem(rf)[15] == 1000), "LW instruction failed"
+    # assert(sim.inspect_mem(rf)[2] == 10), "BEQ instruction failed"
+
+
+    # # You can also print out the register file or memory like so if you want to debug:
+    # print('mem',sim.inspect_mem(d_mem))
+    # print('rf',sim.inspect_mem(rf))
+
+    #Test 1
+    #test addi no hazards
+    assert(sim.inspect_mem(rf)[8] == 0xFFFFFFFF), "Error in Test 1, addi with no hazards, MIPS Line 1"
+    #Test 2
+    #test addi no hazards
+    assert(sim.inspect_mem(rf)[9] == 0xFFFFFFFF), "Error in Test 2, addi with no hazards, MIPS Line 2"
+    #Test 3
+    #test add with hazards
+    assert(sim.inspect_mem(rf)[10] == 0xFFFFFFFE), "Error in Test 3, add with hazards, MIPS Line 3"
+    #Test 4
+    #test lui no hazards
+    assert(sim.inspect_mem(rf)[11] == 0xFFFF0000), "Error in Test 4, lui no hazards, MIPS Line 4"
+    #Test 5
+    #test ori with hazards
+    assert(sim.inspect_mem(rf)[12] == 0xFFFF0001), "Error in Test 5, ori with hazards, MIPS Line 5"
+    #Test 6
+    #test addi no hazards
+    assert(sim.inspect_mem(rf)[13] == 254), "Error in Test 6, addi no hazards, MIPS Line 6"
+    #Test 7
+    #test addi no hazards
+    assert(sim.inspect_mem(rf)[14] == 5383), "Error in Test 7, addi no hazards, MIPS Line 7"
+    #Test 8
+    #test and with hazards
+    assert(sim.inspect_mem(rf)[15] == 6), "Error in Test 8, and with hazards, MIPS Line 8"
+    #Test 9 
+    #test slt with hazards, should compare 6 with 5383
+    assert(sim.inspect_mem(rf)[16] == 1), "Error in Test 9, slt with hazards, MIPS Line 9"
+    #Test 10
+    #test addi with no hazards
+    assert(sim.inspect_mem(rf)[17] == 1), "Error in Test 10, addi no hazards, MIPS Line 10"
+    #Test 11
+    #test addi with no hazards
+    assert(sim.inspect_mem(rf)[18] == 2), "Error in Test 11, addi no hazards, MIPS Line 11"
+    #Test 12
+    #test slt with hazards, should compare 2 with 1
+    assert(sim.inspect_mem(rf)[19] == 0), "Error in Test 12, slt with hazards, MIPS Line 12"
+    #Test 13
+    #try to blow up program with a bunch of hazards
+    assert(sim.inspect_mem(rf)[20] == 10767), "Error in Test 13, add, and, and ori with hazards, MIPS Line 13-16"
+    #Test 14
+    #test addi no hazards
+    assert(sim.inspect_mem(rf)[21] == 1), "Error in Test 14, addi no hazards, MIPS Line 18"
+    #Test 15
+    #test addi no hazards
+    assert(sim.inspect_mem(rf)[22] == 2), "Error in Test 15, addi no hazards, MIPS Line 19"
+    #Test 16
+    #test addi no hazards
+    assert(sim.inspect_mem(rf)[23] == 5), "Error in Test 16, beq should not break here, MIPS Line 20-21"
+    #Test 17
+    #test addi with hazards
+    assert(sim.inspect_mem(rf)[6] == 69), "Error in Test 17, addi with hazards, MIPS Line 25"
+    #Test 18
+    #test addi with hazards
+    assert(sim.inspect_mem(rf)[7] == 69), "Error in Test 18, addi with hazards, MIPS Line 26"
+    #Test 19
+    #test beq with hazards, should break
+    assert(sim.inspect_mem(rf)[1] == 0), "Error in Test 19, beq should break here, MIPS Line 27-28"
+    #Test 20
+    #test sw no hazards
+    assert(sim.inspect_mem(d_mem)[1] == 5), "Error in Test 20, sw no hazards, MIPS Line 29"
+    #Test 21
+    #test lw no hazards
+    assert(sim.inspect_mem(rf)[28] == 5), "Error in Test 21, lw no hazards, MIPS Line 30"
+    #Test 22
+    #test sw with hazards
+    assert(sim.inspect_mem(d_mem)[5] == 5), "Error in Test 22, sw with hazards, MIPS Line 31"
+    #Test 23
+    #test addi no hazards
+    assert(sim.inspect_mem(rf)[29] == 6), "Error in Test 23, addi no hazards, MIPS Line 32"
+    #Test 24
+    #test lw with hazards
+    assert(sim.inspect_mem(rf)[30] == 5), "Error in Test 24, lw with hazards and negative immediate, MIPS Line 33"
+    #Test 25
+    #loop from lab 5b from Canvas
+    assert(sim.inspect_mem(rf)[3] == 10), "Error in Test 25, loop from lab5b from Canvas, MIPS lines 34-44"
+    assert(sim.inspect_mem(d_mem)[15] == 10), "Error in Test 25, loop from lab5b from Canvas, MIPS lines 34-44"
+
+    print('Passed!')
